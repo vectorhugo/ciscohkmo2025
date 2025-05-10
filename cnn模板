@@ -1,0 +1,130 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset, random_split
+import torchvision.transforms as transforms
+from torchvision.datasets import ImageFolder
+import pandas as pd
+import numpy as np
+import os
+
+# ====================== 参数设置 ======================
+batch_size = 64                  # 每个批次的样本数量 <<< 可调参数
+num_epochs = 10                  # 训练轮数 <<< 可调参数
+learning_rate = 0.001            # 学习率 <<< 可调参数
+num_classes = 10                 # 类别数，例如10类手写数字 <<< 可调参数
+image_size = 28                  # 图像尺寸（高度/宽度） <<< 可调参数
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 使用GPU或CPU
+
+# ====================== 数据加载与预处理 ======================
+# 定义图像的预处理流程
+transform = transforms.Compose([
+    transforms.Grayscale(),                      # 转为灰度图像（如为彩色图像可去掉） <<< 可调
+    transforms.Resize((image_size, image_size)), # 调整为统一尺寸 <<< 可调参数
+    transforms.ToTensor(),                       # 转换为Tensor
+    transforms.Normalize((0.5,), (0.5,))         # 归一化处理 <<< 可调参数（根据图像通道均值/方差）
+])
+
+# 加载训练图像数据集，目录结构应为：train/class_name/image.png
+train_dataset = ImageFolder(root='train', transform=transform)  # <<< 可调参数（路径）
+
+# 将训练集按 8:2 分为训练集和验证集
+train_size = int(0.8 * len(train_dataset))  # 训练集占80%
+val_size = len(train_dataset) - train_size  # 剩下为验证集
+train_set, val_set = random_split(train_dataset, [train_size, val_size])
+
+# 创建数据加载器（DataLoader）
+train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)  # 打乱训练集
+val_loader = DataLoader(val_set, batch_size=batch_size)                    # 验证集无需打乱
+
+# ====================== 定义 CNN 模型 ======================
+class CNN(nn.Module):
+    def __init__(self):
+        super(CNN, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, padding=1),  # 第一层卷积（灰度图输入通道为1） <<< 可调
+            nn.ReLU(),                                   # 激活函数
+            nn.MaxPool2d(2),                             # 最大池化，尺寸减半（28 -> 14）
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1), # 第二层卷积 <<< 可调
+            nn.ReLU(),
+            nn.MaxPool2d(2),                             # 尺寸减半（14 -> 7）
+        )
+        self.dropout = nn.Dropout(0.25)                  # Dropout防止过拟合 <<< 可调参数
+        self.fc = nn.Linear(64 * 7 * 7, num_classes)     # 全连接层 <<< 可调（根据输出大小与类别数）
+
+    def forward(self, x):
+        x = self.conv(x)                                 # 卷积层
+        x = x.view(-1, 64 * 7 * 7)                        # 拉平为一维向量
+        x = self.dropout(x)                              # Dropout层
+        x = self.fc(x)                                   # 全连接输出
+        return x
+
+model = CNN().to(device)  # 模型放到GPU或CPU上
+
+# ====================== 损失函数与优化器 ======================
+criterion = nn.CrossEntropyLoss()                        # 多分类交叉熵损失
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # Adam优化器 <<< 可调
+
+# ====================== 评估函数 ======================
+def evaluate(loader):
+    model.eval()                                         # 进入评估模式
+    total_loss, correct, total = 0, 0, 0
+    with torch.no_grad():                               # 不计算梯度
+        for images, labels in loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            total_loss += loss.item() * labels.size(0)   # 累加总损失
+            preds = outputs.argmax(1)                    # 取预测结果
+            correct += (preds == labels).sum().item()    # 正确预测数
+            total += labels.size(0)                      # 总样本数
+    return total_loss / total, correct / total           # 返回平均损失和准确率
+
+# ====================== 训练循环 ======================
+for epoch in range(num_epochs):
+    model.train()                                        # 训练模式
+    total_loss, correct, total = 0, 0, 0
+    for images, labels in train_loader:
+        images, labels = images.to(device), labels.to(device)
+        optimizer.zero_grad()                            # 梯度清零
+        outputs = model(images)                          # 前向传播
+        loss = criterion(outputs, labels)                # 计算损失
+        loss.backward()                                  # 反向传播
+        optimizer.step()                                 # 更新参数
+
+        total_loss += loss.item() * labels.size(0)
+        preds = outputs.argmax(1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+
+    train_loss = total_loss / total
+    train_acc = correct / total
+    val_loss, val_acc = evaluate(val_loader)             # 在验证集上评估
+    print(f'Epoch {epoch+1}/{num_epochs} - Train Loss: {train_loss:.4f}, Acc: {train_acc:.4f} | Val Loss: {val_loss:.4f}, Acc: {val_acc:.4f}')
+
+# ====================== 测试集预测并生成 submission.csv ======================
+# 测试数据加载（ImageFolder测试集标签默认为 0） <<< 可调
+test_dataset = ImageFolder(root='test', transform=transform)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+model.eval()
+all_preds = []
+
+with torch.no_grad():
+    for images, _ in test_loader:
+        images = images.to(device)
+        outputs = model(images)
+        preds = outputs.argmax(1)
+        all_preds.append(preds.cpu())
+
+# 拼接所有预测结果
+final_predictions = torch.cat(all_preds).numpy()
+
+# 创建 submission.csv
+submission = pd.DataFrame({
+    'id': list(range(len(final_predictions))),  # 假设文件顺序和预测顺序一致 <<< 可调
+    'label': final_predictions
+})
+submission.to_csv('submission.csv', index=False)         # 保存预测结果
+print("预测结果已保存为 submission.csv")
