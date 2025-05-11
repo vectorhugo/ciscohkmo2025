@@ -1,0 +1,217 @@
+詳細數據預處理與特徵工程流程
+1. 準備工作：導入庫和加載數據
+導入必要的庫並加載 Titanic 數據集（假設 train.csv 已下載）。
+
+python
+
+複製
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 加載數據
+data = pd.read_csv('train.csv')
+
+# 創建數據副本
+df = data.copy()
+
+# 查看數據概況
+print("數據信息：")
+df.info()
+print("\n數據前5行：")
+print(df.head())
+print("\n缺失值統計：")
+print(df.isnull().sum())
+2. 數據預處理
+(1) 處理缺失值
+根據欄位類型和缺失比例，選擇合適的填充方法：
+
+數值型：Age：用中位數填充。
+類別型：Embarked：用眾數填充。
+文本型：Cabin：缺失值過多，暫時刪除（後續提取特徵）。
+python
+
+複製
+# 可視化 Age 分佈
+plt.figure(figsize=(8, 6))
+sns.histplot(df['Age'], bins=30, kde=True)
+plt.title('Age Distribution Before Imputation')
+plt.show()
+
+# 填充 Age 的缺失值（中位數）
+age_imputer = SimpleImputer(strategy='median')
+df['Age'] = age_imputer.fit_transform(df[['Age']])
+
+# 填充 Embarked 的缺失值（眾數）
+embarked_imputer = SimpleImputer(strategy='most_frequent')
+df['Embarked'] = embarked_imputer.fit_transform(df[['Embarked']]).ravel()
+
+# 刪除 Cabin
+df.drop('Cabin', axis=1, inplace=True)
+
+# 檢查缺失值
+print("\n缺失值處理後：")
+print(df.isnull().sum())
+(2) 處理異常值
+使用 IQR 方法檢測和處理 Fare 的異常值。
+
+python
+
+複製
+# 可視化 Fare 分佈
+plt.figure(figsize=(8, 6))
+sns.boxplot(x=df['Fare'])
+plt.title('Fare Boxplot')
+plt.show()
+
+# 使用 IQR 檢測異常值並截斷
+Q1 = df['Fare'].quantile(0.25)
+Q3 = df['Fare'].quantile(0.75)
+IQR = Q3 - Q1
+lower_bound = Q1 - 1.5 * IQR
+upper_bound = Q3 + 1.5 * IQR
+df['Fare'] = df['Fare'].clip(lower=lower_bound, upper=upper_bound)
+
+# 再次可視化
+plt.figure(figsize=(8, 6))
+sns.boxplot(x=df['Fare'])
+plt.title('Fare Boxplot After Clipping')
+plt.show()
+(3) 數據類型轉換
+將 Pclass 轉為類別型，確保正確處理。
+
+python
+
+複製
+# 將 Pclass 轉為類別型
+df['Pclass'] = df['Pclass'].astype('category')
+
+# 檢查數據類型
+print("\n數據類型：")
+print(df.dtypes)
+3. 特徵工程
+(1) 類別型特徵的編碼
+對類別型特徵（Pclass, Sex, Embarked）進行編碼：
+
+標籤編碼：Pclass（有序）。
+獨熱編碼：Sex, Embarked（無序）。
+python
+
+複製
+# 標籤編碼 Pclass
+label_encoder = LabelEncoder()
+df['Pclass'] = label_encoder.fit_transform(df['Pclass'])
+
+# 獨熱編碼 Sex 和 Embarked
+df = pd.get_dummies(df, columns=['Sex', 'Embarked'], prefix=['Sex', 'Embarked'], drop_first=True)
+
+# 查看編碼後數據
+print("\n編碼後的前5行：")
+print(df.head())
+(2) 數值型特徵的歸一化
+對數值型特徵（Age, Fare, SibSp, Parch）進行歸一化，將值縮放到 [0, 1]，適用於神經網絡或基於距離的模型。同時保留標準化的選項，供比較。
+
+python
+
+複製
+# 定義數值特徵
+numeric_features = ['Age', 'Fare', 'SibSp', 'Parch']
+
+# 歸一化
+normalizer = MinMaxScaler()
+df[numeric_features] = normalizer.fit_transform(df[numeric_features])
+
+# 可選：標準化（對比用）
+scaler = StandardScaler()
+df[[f'{col}_std' for col in numeric_features]] = scaler.fit_transform(df[numeric_features])
+
+# 查看歸一化後數據
+print("\n歸一化後的數值特徵：")
+print(df[numeric_features].describe())
+
+# 查看標準化後數據
+print("\n標準化後的數值特徵：")
+print(df[[f'{col}_std' for col in numeric_features]].describe())
+(3) 從文本數據中提取特徵
+從 Name 提取稱謂（Title），從 Ticket 提取是否為數字票號。
+
+python
+
+複製
+# 提取稱謂
+df['Title'] = df['Name'].str.extract(' ([A-Za-z]+)\.', expand=False)
+
+# 合併罕見稱謂
+rare_titles = ['Dr', 'Rev', 'Col', 'Major', 'Capt', 'Lady', 'Sir', 'Don', 'Jonkheer']
+df['Title'] = df['Title'].replace(rare_titles, 'Rare')
+df['Title'] = df['Title'].replace(['Mlle', 'Ms'], 'Miss')
+df['Title'] = df['Title'].replace('Mme', 'Mrs')
+
+# 獨熱編碼 Title
+df = pd.get_dummies(df, columns=['Title'], prefix='Title', drop_first=True)
+
+# 提取 Ticket 是否為數字
+df['TicketNumeric'] = df['Ticket'].str.isnumeric().astype(int)
+
+# 查看稱謂分佈
+print("\n稱謂分佈：")
+print(df['Title'].value_counts())
+(4) 創建衍生特徵
+創建以下特徵：
+
+家庭大小：SibSp + Parch + 1。
+是否獨自旅行：家庭大小是否為1。
+年齡分箱：將 Age 分為區間。
+python
+
+複製
+# 創建家庭大小
+df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
+
+# 創建是否獨自旅行
+df['IsAlone'] = (df['FamilySize'] == 1).astype(int)
+
+# 將 Age 分箱
+df['AgeBin'] = pd.cut(df['Age'], bins=[-np.inf, 12, 18, 30, 50, np.inf], labels=[0, 1, 2, 3, 4])
+df = pd.get_dummies(df, columns=['AgeBin'], prefix='AgeBin', drop_first=True)
+
+# 歸一化 FamilySize
+df[['FamilySize']] = normalizer.fit_transform(df[['FamilySize']])
+(5) 特徵選擇
+檢查特徵相關性，識別冗餘特徵。
+
+python
+
+複製
+# 計算相關性矩陣
+corr_matrix = df.corr()
+
+# 可視化
+plt.figure(figsize=(12, 8))
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt='.2f')
+plt.title('Correlation Matrix')
+plt.show()
+
+# 找出高度相關特徵（閾值 0.8）
+high_corr = [(col1, col2) for col1 in corr_matrix for col2 in corr_matrix if (corr_matrix.loc[col1, col2] > 0.8) and (col1 != col2)]
+print("\n高度相關的特徵對：")
+print(high_corr)
+4. 最終得到純數字特徵
+刪除無用欄位，確保所有特徵為數值型。
+
+python
+
+複製
+# 刪除無用欄位
+df.drop(['PassengerId', 'Name', 'Ticket'], axis=1, inplace=True)
+
+# 檢查最終數據
+print("\n最終數據類型：")
+print(df.dtypes)
+print("\n最終數據前5行：")
+print(df.head())
