@@ -1,0 +1,217 @@
+在 Kaggle 中使用神經網絡訓練模型的流程
+1. 準備工作
+環境設置：Kaggle 提供免費的 Notebook 環境，支援 GPU/TPU 加速，適合神經網絡訓練。確保啟用 GPU（在 Notebook 設置中）。
+數據加載：從 Kaggle 比賽頁面下載數據（通常為 train.csv 和 test.csv）。
+庫導入：使用 Pandas 進行數據處理，TensorFlow/Keras 構建神經網絡。
+2. 數據預處理與特徵工程
+清理數據：處理缺失值、異常值，轉換數據類型。
+特徵工程：編碼類別變量、標準化/歸一化數值變量、創建衍生特徵。
+數據分割：將訓練數據分為訓練集和驗證集，確保模型泛化。
+3. 構建神經網絡
+模型架構：設計輸入層、隱藏層和輸出層，根據任務選擇激活函數和損失函數。
+編譯模型：設置優化器、損失函數和評估指標。
+正則化：使用 Dropout、L2 正則化等防止過擬合。
+4. 訓練模型
+數據輸入：將數據轉為 NumPy 陣列或 TensorFlow 數據集。
+超參數調整：設置批量大小（batch size）、訓練輪數（epochs）和學習率。
+驗證：使用驗證集監控性能，應用早停（Early Stopping）避免過擬合。
+5. 預測與提交
+預測：對測試數據進行預測，生成提交格式。
+提交：將預測結果保存為 CSV，提交到 Kaggle。
+範例：Titanic 比賽中使用神經網絡
+背景
+任務：預測乘客是否存活（二分類：0=未存活，1=存活）。
+數據：train.csv（含 Survived 目標變量），test.csv（無 Survived）。
+目標：構建神經網絡模型，生成 submission.csv。
+完整代碼範例
+以下代碼可在 Kaggle Notebook 中運行，假設數據位於 /kaggle/input/titanic/ 目錄下（Kaggle 比賽數據的標準路徑）。
+
+python
+
+複製
+# 1. 導入庫
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.impute import SimpleImputer
+from tensorflow import keras
+from tensorflow.keras import layers
+import matplotlib.pyplot as plt
+
+# 2. 加載數據
+train = pd.read_csv('/kaggle/input/titanic/train.csv')
+test = pd.read_csv('/kaggle/input/titanic/test.csv')
+
+# 儲存 test 的 PassengerId 用於提交
+test_ids = test['PassengerId']
+
+# 3. 數據預處理與特徵工程
+# 合併訓練和測試數據以統一處理
+combined = pd.concat([train.drop('Survived', axis=1), test], axis=0, ignore_index=True)
+
+# (1) 處理缺失值
+# Age：用中位數填充
+age_imputer = SimpleImputer(strategy='median')
+combined['Age'] = age_imputer.fit_transform(combined[['Age']])
+
+# Fare：用中位數填充（test 中可能有缺失）
+combined['Fare'] = combined['Fare'].fillna(combined['Fare'].median())
+
+# Embarked：用眾數填充
+embarked_imputer = SimpleImputer(strategy='most_frequent')
+combined['Embarked'] = embarked_imputer.fit_transform(combined[['Embarked']]).ravel()
+
+# (2) 特徵工程
+# 提取稱謂
+combined['Title'] = combined['Name'].str.extract(' ([A-Za-z]+)\.', expand=False)
+combined['Title'] = combined['Title'].replace(['Dr', 'Rev', 'Col', 'Major', 'Capt', 'Lady', 'Sir', 'Don', 'Jonkheer'], 'Rare')
+combined['Title'] = combined['Title'].replace(['Mlle', 'Ms'], 'Miss')
+combined['Title'] = combined['Title'].replace('Mme', 'Mrs')
+
+# 創建家庭大小
+combined['FamilySize'] = combined['SibSp'] + combined['Parch'] + 1
+
+# 是否獨自旅行
+combined['IsAlone'] = (combined['FamilySize'] == 1).astype(int)
+
+# (3) 編碼類別變量
+# 標籤編碼 Pclass
+label_encoder = LabelEncoder()
+combined['Pclass'] = label_encoder.fit_transform(combined['Pclass'])
+
+# 獨熱編碼 Sex, Embarked, Title
+combined = pd.get_dummies(combined, columns=['Sex', 'Embarked', 'Title'], drop_first=True)
+
+# (4) 標準化數值特徵
+numeric_features = ['Age', 'Fare', 'SibSp', 'Parch', 'FamilySize']
+scaler = StandardScaler()
+combined[numeric_features] = scaler.fit_transform(combined[numeric_features])
+
+# (5) 刪除無用欄位
+combined.drop(['PassengerId', 'Name', 'Ticket', 'Cabin'], axis=1, inplace=True)
+
+# 分離訓練和測試數據
+train_processed = combined.iloc[:len(train)]
+test_processed = combined.iloc[len(train):]
+y = train['Survived']
+
+# 4. 分割訓練和驗證集
+X_train, X_val, y_train, y_val = train_test_split(train_processed, y, test_size=0.2, random_state=42)
+
+# 轉為 NumPy 陣列
+X_train = X_train.to_numpy()
+X_val = X_val.to_numpy()
+y_train = y_train.to_numpy()
+y_val = y_val.to_numpy()
+X_test = test_processed.to_numpy()
+
+# 5. 構建神經網絡
+model = keras.Sequential([
+    layers.Dense(64, activation='relu', input_shape=(X_train.shape[1],)),  # 隱藏層1
+    layers.Dropout(0.3),  # Dropout 防止過擬合
+    layers.Dense(32, activation='relu'),  # 隱藏層2
+    layers.Dropout(0.3),
+    layers.Dense(1, activation='sigmoid')  # 輸出層（二分類）
+])
+
+# 編譯模型
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# 6. 訓練模型
+# 設置早停
+early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+
+# 訓練
+history = model.fit(
+    X_train, y_train,
+    validation_data=(X_val, y_val),
+    epochs=100,
+    batch_size=32,
+    callbacks=[early_stopping],
+    verbose=1
+)
+
+# 7. 繪製訓練曲線
+plt.figure(figsize=(12, 4))
+
+# 損失曲線
+plt.subplot(1, 2, 1)
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.title('Loss Curve')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+
+# 準確率曲線
+plt.subplot(1, 2, 2)
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.title('Accuracy Curve')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+# 8. 預測測試數據
+y_pred = model.predict(X_test)
+y_pred = (y_pred > 0.5).astype(int).flatten()  # 轉為 0/1
+
+# 9. 生成提交文件
+submission = pd.DataFrame({'PassengerId': test_ids, 'Survived': y_pred})
+submission.to_csv('submission.csv', index=False)
+
+# 查看提交文件
+print("提交文件前5行：")
+print(submission.head())
+代碼詳細說明
+1. 數據預處理與特徵工程
+缺失值：
+Age 和 Fare：用中位數填充，穩健且簡單。
+Embarked：用眾數填充，影響最小。
+特徵工程：
+從 Name 提取 Title，合併罕見稱謂，進行獨熱編碼。
+創建 FamilySize 和 IsAlone，捕捉家庭結構。
+對類別變量（Pclass, Sex, Embarked, Title）進行標籤編碼或獨熱編碼。
+對數值變量（Age, Fare, SibSp, Parch, FamilySize）進行標準化，確保神經網絡穩定訓練。
+數據合併：訓練和測試數據統一處理，確保特徵一致。
+刪除無用欄位：PassengerId, Name, Ticket, Cabin 不直接用於建模。
+2. 神經網絡設計
+架構：
+輸入層：特徵數量由 X_train.shape[1] 決定。
+隱藏層：兩個全連接層（64 和 32 個神經元），使用 ReLU 激活。
+Dropout（0.3）：防止過擬合。
+輸出層：單神經元，Sigmoid 激活，輸出存活概率。
+編譯：
+優化器：Adam（自適應學習率，適合大多數任務）。
+損失函數：binary_crossentropy（二分類標準損失）。
+指標：accuracy（監控分類準確率）。
+3. 訓練
+分割數據：80% 訓練，20% 驗證，隨機種子確保可重現。
+超參數：
+batch_size=32：小批量訓練，平衡速度和穩定性。
+epochs=100：設置較多輪數，依賴早停控制。
+早停：監控 val_loss，連續 10 輪無改善則停止，恢復最佳權重。
+訓練曲線：繪製損失和準確率曲線，檢查過擬合或欠擬合。
+4. 預測與提交
+預測：對測試數據預測概率，閾值 0.5 轉為 0/1。
+提交格式：生成 PassengerId 和 Survived 的 CSV 文件，符合 Kaggle 要求。
+Kaggle 比賽中的注意事項
+1. 環境設置
+在 Kaggle Notebook 中，右側設置啟用 GPU（點擊 “Settings” -> “Accelerator” -> “GPU”）。
+確保數據路徑正確（Kaggle 數據通常在 /kaggle/input/）。
+檢查庫版本，必要時升級（如 !pip install tensorflow --upgrade）。
+2. 數據預處理
+統一處理：訓練和測試數據必須使用相同的預處理邏輯（例如相同的填充值、編碼方式）。
+數據洩漏：避免在特徵工程中使用測試數據的信息。
+特徵選擇：神經網絡對噪音敏感，過多無用特徵可能降低性能。
+3. 模型優化
+過擬合：Titanic 數據集較小，容易過擬合。使用 Dropout、L2 正則化或減少層數。
+超參數調優：
+嘗試不同層數和神經元數（例如 128、64、32）。
+調整學習率（例如 keras.optimizers.Adam(learning_rate=0.001)）。
+改變 batch_size（16、64 等）。
+交叉驗證：對於小數據集，K 折交叉驗證可提高穩健性。
