@@ -1,0 +1,347 @@
+Pandas 在 Kaggle 中的常用用途
+Pandas 是一個功能強大的數據操作和分析庫，基於 DataFrame 和 Series 結構，特別適合處理結構化數據（如 CSV 文件）。在 Kaggle 中，Pandas 幾乎貫穿數據預處理、探索性數據分析（EDA）和特徵工程的每個環節。
+
+1. 數據加載與檢查
+用途：讀取 Kaggle 提供的數據集（通常為 CSV），檢查數據結構、缺失值和基本統計信息。
+常見場景：加載訓練和測試數據，快速了解數據類型和分佈。
+代碼示例：
+python
+
+複製
+import pandas as pd
+
+# 讀取數據
+train = pd.read_csv('train.csv')
+test = pd.read_csv('test.csv')
+
+# 查看數據概況
+print(train.info())  # 數據類型和缺失值
+print(train.describe())  # 數值型統計
+print(train.head())  # 前5行
+print(train.isnull().sum())  # 缺失值統計
+2. 數據選擇與過濾
+用途：選擇特定列、行或子集，根據條件過濾數據。
+常見場景：提取目標變量、特徵，或篩選異常值。
+代碼示例：
+python
+
+複製
+# 選擇特定列
+features = train[['Age', 'Fare', 'Pclass']]
+
+# 根據條件過濾（例如年齡大於18）
+adults = train[train['Age'] > 18]
+
+# 選擇非缺失值行
+no_missing_age = train[train['Age'].notnull()]
+3. 缺失值處理
+用途：填充或刪除缺失值，確保數據完整。
+常見場景：處理 Titanic 的 Age、Embarked 或 House Prices 的 LotFrontage 缺失值。
+代碼示例：
+python
+
+複製
+# 填充缺失值
+train['Age'].fillna(train['Age'].median(), inplace=True)
+train['Embarked'].fillna(train['Embarked'].mode()[0], inplace=True)
+
+# 刪除含缺失值的行
+train_dropped = train.dropna(subset=['Age', 'Embarked'])
+
+# 刪除缺失值過多的列
+train.drop('Cabin', axis=1, inplace=True)
+4. 數據類型轉換
+用途：將數據類型轉換為適合分析或建模的格式。
+常見場景：將類別型特徵轉為 category，或將字符串轉為數值。
+代碼示例：
+python
+
+複製
+# 將 Pclass 轉為類別型
+train['Pclass'] = train['Pclass'].astype('category')
+
+# 將字符串轉為數值（例如 Sex）
+train['Sex'] = train['Sex'].map({'male': 1, 'female': 0})
+5. 特徵工程
+用途：創建新特徵、編碼類別變量、提取信息。
+常見場景：從 Name 提取稱謂、對類別特徵進行獨熱編碼、創建衍生特徵。
+代碼示例：
+python
+
+複製
+# 提取稱謂
+train['Title'] = train['Name'].str.extract(' ([A-Za-z]+)\.', expand=False)
+
+# 創建家庭大小特徵
+train['FamilySize'] = train['SibSp'] + train['Parch'] + 1
+
+# 獨熱編碼
+train = pd.get_dummies(train, columns=['Embarked', 'Title'], prefix=['Embarked', 'Title'], drop_first=True)
+
+# 分箱連續變量
+train['AgeBin'] = pd.cut(train['Age'], bins=[0, 12, 18, 30, 50, 100], labels=[0, 1, 2, 3, 4])
+6. 分組與聚合
+用途：按某列分組，計算統計量（如均值、計數），用於特徵創建或 EDA。
+常見場景：計算每個 Pclass 的平均 Fare，或按 Title 統計生存率。
+代碼示例：
+python
+
+複製
+# 按 Pclass 計算平均 Fare
+pclass_fare = train.groupby('Pclass')['Fare'].mean()
+
+# 按 Title 計算生存率
+title_survival = train.groupby('Title')['Survived'].mean()
+
+# 創建分組特徵
+train['Pclass_MeanFare'] = train['Pclass'].map(pclass_fare)
+7. 數據合併與連接
+用途：合併訓練和測試數據進行統一預處理，或合併外部數據。
+常見場景：統一編碼類別變量，或加入外部特徵。
+代碼示例：
+python
+
+複製
+# 合併訓練和測試數據
+combined = pd.concat([train, test], axis=0, ignore_index=True)
+
+# 對合併數據進行預處理
+combined['Age'].fillna(combined['Age'].median(), inplace=True)
+
+# 分離回訓練和測試數據
+train = combined[combined['Survived'].notnull()]
+test = combined[combined['Survived'].isnull()]
+8. 探索性數據分析（EDA）
+用途：生成統計圖表，分析特徵與目標變量的關係。
+常見場景：檢查特徵分佈、相關性或生存率。
+代碼示例：
+python
+
+複製
+# 繪製 Age 分佈
+sns.histplot(train['Age'], bins=30, kde=True)
+plt.title('Age Distribution')
+plt.show()
+
+# 繪製 Pclass 與 Survived 的關係
+sns.barplot(x='Pclass', y='Survived', data=train)
+plt.title('Survival Rate by Pclass')
+plt.show()
+
+# 相關性熱圖
+corr_matrix = train.corr()
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm')
+plt.title('Correlation Matrix')
+plt.show()
+9. 數據清洗
+用途：處理重複值、異常值或不一致數據。
+常見場景：刪除重複行，修正數據輸入錯誤。
+代碼示例：
+python
+
+複製
+# 檢查重複行
+print(train.duplicated().sum())
+train.drop_duplicates(inplace=True)
+
+# 修正異常值（例如 Fare < 0）
+train = train[train['Fare'] >= 0]
+10. 數據導出
+用途：將處理後的數據或提交文件保存為 CSV。
+常見場景：生成 Kaggle 提交文件。
+代碼示例：
+python
+
+複製
+# 保存處理後的數據
+train.to_csv('processed_train.csv', index=False)
+
+# 生成提交文件
+submission = pd.DataFrame({'PassengerId': test['PassengerId'], 'Survived': predictions})
+submission.to_csv('submission.csv', index=False)
+NumPy 在 Kaggle 中的常用用途
+NumPy 是高效的數值計算庫，專注於陣列操作和數學計算。在 Kaggle 中，NumPy 通常用於數值數據處理、陣列操作和與其他庫（如 Pandas、Scikit-learn）的配合。
+
+1. 陣列操作
+用途：處理數值數據，執行高效的陣列計算。
+常見場景：將 Pandas DataFrame 轉為 NumPy 陣列，供模型輸入。
+代碼示例：
+python
+
+複製
+import numpy as np
+
+# 將 DataFrame 轉為 NumPy 陣列
+X = train[['Age', 'Fare']].to_numpy()
+y = train['Survived'].to_numpy()
+
+# 基本陣列操作
+X_mean = np.mean(X, axis=0)
+X_std = np.std(X, axis=0)
+2. 數值數據預處理
+用途：執行標準化、歸一化或數值轉換。
+常見場景：對特徵進行數值縮放，準備模型輸入。
+代碼示例：
+python
+
+複製
+# 標準化
+X_normalized = (X - np.mean(X, axis=0)) / np.std(X, axis=0)
+
+# 歸一化到 [0, 1]
+X_minmax = (X - np.min(X, axis=0)) / (np.max(X, axis=0) - np.min(X, axis=0))
+3. 缺失值處理
+用途：處理陣列中的缺失值。
+常見場景：在轉為陣列後，填充缺失值。
+代碼示例：
+python
+
+複製
+# 填充缺失值為均值
+X[np.isnan(X)] = np.nanmean(X)
+4. 隨機數生成
+用途：生成隨機數，用於數據分割、初始化或數據增強。
+常見場景：隨機打亂數據或生成隨機種子。
+代碼示例：
+python
+
+複製
+# 設置隨機種子
+np.random.seed(42)
+
+# 隨機打亂數據
+indices = np.random.permutation(X.shape[0])
+X_shuffled = X[indices]
+y_shuffled = y[indices]
+
+# 生成隨機數據
+random_data = np.random.randn(100, 2)
+5. 數學與統計計算
+用途：執行向量化的數學運算或統計分析。
+常見場景：計算特徵的統計量，或實現自定義損失函數。
+代碼示例：
+python
+
+複製
+# 計算特徵的均值和標準差
+means = np.mean(X, axis=0)
+stds = np.std(X, axis=0)
+
+# 計算歐氏距離
+distances = np.sqrt(np.sum((X - X[0])**2, axis=1))
+6. 陣列形狀操作
+用途：改變陣列形狀，適配模型輸入。
+常見場景：將數據重塑為特定形狀，或展平陣列。
+代碼示例：
+python
+
+複製
+# 重塑陣列
+X_reshaped = X.reshape(-1, X.shape[1])
+
+# 展平陣列
+X_flattened = X.flatten()
+
+# 添加維度
+X_expanded = np.expand_dims(X, axis=-1)
+7. 邏輯與條件操作
+用途：根據條件篩選或修改數據。
+常見場景：篩選異常值或創建二值特徵。
+代碼示例：
+python
+
+複製
+# 篩選 Age > 18 的數據
+mask = X[:, 0] > 18
+X_adults = X[mask]
+
+# 創建二值特徵
+is_high_fare = (X[:, 1] > np.median(X[:, 1])).astype(int)
+8. 與機器學習模型配合
+用途：準備數據格式，與 Scikit-learn、TensorFlow 或 PyTorch 等庫配合。
+常見場景：將數據轉為陣列，供模型訓練。
+代碼示例：
+python
+
+複製
+from sklearn.linear_model import LogisticRegression
+
+# 準備數據
+X_train = train[['Age', 'Fare']].to_numpy()
+y_train = train['Survived'].to_numpy()
+
+# 訓練模型
+model = LogisticRegression()
+model.fit(X_train, y_train)
+9. 高效批量操作
+用途：執行批量計算，優化性能。
+常見場景：對大規模數據進行向量化的操作。
+代碼示例：
+python
+
+複製
+# 批量計算特徵的平方
+X_squared = np.square(X)
+
+# 批量應用 sigmoid 函數
+sigmoid = 1 / (1 + np.exp(-X))
+10. 特徵選擇與降維
+用途：計算特徵重要性或進行簡單降維。
+常見場景：選擇高方差特徵，或實現簡單 PCA。
+代碼示例：
+python
+
+複製
+# 計算特徵方差
+variances = np.var(X, axis=0)
+
+# 簡單 PCA（基於奇異值分解）
+U, S, Vt = np.linalg.svd(X, full_matrices=False)
+X_pca = np.dot(X, Vt.T[:, :2])
+Pandas 與 NumPy 的結合使用
+在 Kaggle 中，Pandas 和 NumPy 經常結合使用：
+
+Pandas 負責結構化數據處理：如數據加載、清洗、特徵工程和 EDA。
+NumPy 負責數值計算：將 Pandas DataFrame 轉為陣列，執行高效的數學運算或準備模型輸入。
+典型流程：
+用 Pandas 讀取和預處理數據（缺失值、編碼、分箱）。
+將處理後的數據轉為 NumPy 陣列，進行標準化或模型訓練。
+用 NumPy 進行快速計算，結果轉回 Pandas 保存或提交。
+代碼示例（結合使用）：
+
+python
+
+複製
+# Pandas 預處理
+train['Age'].fillna(train['Age'].median(), inplace=True)
+train['Fare'] = train['Fare'].clip(lower=0, upper=train['Fare'].quantile(0.95))
+train = pd.get_dummies(train, columns=['Sex'], drop_first=True)
+
+# 轉為 NumPy 陣列
+X = train[['Age', 'Fare', 'Sex_male']].to_numpy()
+y = train['Survived'].to_numpy()
+
+# NumPy 歸一化
+X_normalized = (X - np.min(X, axis=0)) / (np.max(X, axis=0) - np.min(X, axis=0))
+
+# 轉回 Pandas 保存
+processed_df = pd.DataFrame(X_normalized, columns=['Age', 'Fare', 'Sex_male'])
+processed_df.to_csv('processed_data.csv', index=False)
+總結與建議
+Pandas 核心用途
+數據加載、檢查、清洗。
+特徵選擇、過濾、編碼、分箱。
+分組聚合、數據合併、EDA。
+導出提交文件。
+NumPy 核心用途
+高效陣列操作和數值計算。
+數據標準化、歸一化。
+隨機數生成、形狀操作。
+與機器學習模型配合。
+Kaggle 實戰建議
+熟練 Pandas：掌握 DataFrame 操作（如 groupby, merge, get_dummies），能快速完成特徵工程。
+靈活使用 NumPy：在需要高效計算或模型輸入時，轉為 NumPy 陣列。
+學習資源：
+Kaggle 課程：《Pandas》、《Python》。
+文檔：Pandas 和 NumPy 官方文檔。
+實操：參與
